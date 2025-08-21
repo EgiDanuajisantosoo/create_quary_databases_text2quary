@@ -6,9 +6,10 @@ export const runtime = "nodejs";
 export async function GET() {
   try {
     const pool = getPool();
-    const [rows] = await pool.query("SELECT DATABASE() db, NOW() now");
+    const [rows] = await pool.query("SELECT DATABASE() AS db, NOW() AS now");
     return NextResponse.json({ ok: true, rows });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

@@ -1,73 +1,46 @@
-const OLLAMA_BASE  = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "sqlcoder:7b";
+// src/app/api/chat/route.ts
+import { NextRequest, NextResponse } from "next/server";
 
-async function ollamaGenerate(prompt: string, opts?: { timeoutMs?: number }) {
-  const timeoutMs = opts?.timeoutMs ?? 90_000;
-  const ctrl = new AbortController();
-  const id = setTimeout(() => ctrl.abort("timeout"), timeoutMs);
+export const runtime = "nodejs";
+const OLLAMA_BASE = (process.env.OLLAMA_BASE_URL || "").replace(/\/+$/, "");
 
-  try {
-    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
-      method: "POST",
-      signal: ctrl.signal,
-      headers: { "Content-Type": "application/json", "Connection": "close" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false,
-        options: { num_predict: 256, temperature: 0 },
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Ollama error ${res.status}: ${text.slice(0, 250)}`);
-    }
-
-    const data: any = await res.json();
-    if (data?.error) throw new Error(`Ollama error: ${data.error}`);
-
-    let out = data?.response ?? data?.text ?? "";
-
-    if (!out) {
-      out = await ollamaChatFallback(prompt, { timeoutMs });
-    }
-
-    if (!out) throw new Error("Ollama tidak mengembalikan teks.");
-    return String(out);
-  } finally {
-    clearTimeout(id);
-  }
+type Role = "system" | "user" | "assistant";
+interface ChatMessage { role: Role; content: string }
+interface ChatPayload {
+  model: string;
+  messages: ChatMessage[];
+  stream?: boolean;
+  format?: "json" | "text";
+  options?: Record<string, unknown>;
 }
 
-async function ollamaChatFallback(prompt: string, opts?: { timeoutMs?: number }) {
-  const timeoutMs = opts?.timeoutMs ?? 90_000;
-  const ctrl = new AbortController();
-  const id = setTimeout(() => ctrl.abort("timeout"), timeoutMs);
-
+export async function POST(req: NextRequest) {
+  if (!OLLAMA_BASE) {
+    return NextResponse.json(
+      { error: "OLLAMA_BASE_URL tidak di-set di environment" },
+      { status: 500 }
+    );
+  }
+  let body: ChatPayload;
+  try {
+    body = (await req.json()) as ChatPayload;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   try {
     const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
       method: "POST",
-      signal: ctrl.signal,
-      headers: { "Content-Type": "application/json", "Connection": "close" },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        messages: [{ role: "user", content: prompt }],
-        stream: false,
-        options: { num_predict: 256, temperature: 0 },
-      }),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Ollama chat error ${res.status}: ${text.slice(0, 250)}`);
-    }
-
-    const data: any = await res.json();
-    if (data?.error) throw new Error(`Ollama chat error: ${data.error}`);
-
-    return String(data?.message?.content ?? "");
-  } finally {
-    clearTimeout(id);
+    const text = await res.text();
+    // Teruskan status & payload apa adanya (Ollama balas JSON)
+    return new NextResponse(text, {
+      status: res.status,
+      headers: { "Content-Type": res.headers.get("Content-Type") || "application/json" },
+    });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+// src/app/api/text-to-sql/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { makeSql, explainSql, runSql, querySchema } from "@/lib/text2sql";
 
@@ -11,6 +12,15 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const t0 = Date.now();
   let lastSql: string | undefined;
+
+  // Matikan di production bila tidak ada OLLAMA_BASE_URL
+  if (!process.env.OLLAMA_BASE_URL) {
+    return NextResponse.json(
+      { error: "Text2SQL dimatikan di production (OLLAMA_BASE_URL tidak di-set)" },
+      { status: 501 }
+    );
+  }
+
   try {
     const body = await req.json();
     const { question, execute } = querySchema.parse(body);
@@ -21,11 +31,9 @@ export async function POST(req: NextRequest) {
     let plan;
     try {
       plan = await explainSql(sql);
-    } catch (ex: any) {
-      return NextResponse.json(
-        { error: ex?.message || "Explain error", sql },
-        { status: 400 }
-      );
+    } catch (ex: unknown) {
+      const message = ex instanceof Error ? ex.message : String(ex);
+      return NextResponse.json({ error: message, sql }, { status: 400 });
     }
 
     if (!execute) return NextResponse.json({ sql, plan });
@@ -33,18 +41,13 @@ export async function POST(req: NextRequest) {
     try {
       const rows = await runSql(sql);
       return NextResponse.json({ sql, plan, rows });
-    } catch (ex: any) {
-      return NextResponse.json(
-        { error: ex?.message || "Run error", sql, plan },
-        { status: 400 }
-      );
+    } catch (ex: unknown) {
+      const message = ex instanceof Error ? ex.message : String(ex);
+      return NextResponse.json({ error: message, sql, plan }, { status: 400 });
     }
-  } catch (e: any) {
-    console.error("[/api/text-to-sql] error after", Date.now() - t0, "ms:", e);
-    return NextResponse.json(
-      { error: e?.message ?? "Internal error", sql: lastSql },
-      { status: 400 }
-    );
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[/api/text-to-sql] error after", Date.now() - t0, "ms:", message);
+    return NextResponse.json({ error: message, sql: lastSql }, { status: 400 });
   }
 }
-

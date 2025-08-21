@@ -1,14 +1,26 @@
+// src/app/api/ollama-ping/route.ts
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  const base = (process.env.OLLAMA_BASE_URL || "").replace(/\/+$/, "");
+  if (!base) {
+    return NextResponse.json(
+      { ok: false, error: "OLLAMA_BASE_URL tidak di-set (fitur dimatikan di production)" },
+      { status: 501 }
+    );
+  }
+
   try {
-    const base = (process.env.OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
     const res = await fetch(`${base}/api/tags`);
-    const tags = await res.json();
-    return NextResponse.json({ ok: true, base, tags });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
+    const text = await res.text();
+    return new NextResponse(text, {
+      status: res.status,
+      headers: { "Content-Type": res.headers.get("Content-Type") || "application/json" },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
